@@ -9,10 +9,11 @@ int main(int argc, char **argv){
 	init_parameters.sdk_verbose = true;
 	init_parameters.coordinate_units = sl::UNIT::METER;
 	init_parameters.camera_resolution = sl::RESOLUTION::HD720;
-
+	init_parameters.coordinate_system = sl::COORDINATE_SYSTEM::RIGHT_HANDED_Y_UP; // Use a right-handed Y-up coordinate system
+	
 	sl::SpatialMappingParameters mapping_parameters;
-	mapping_parameters.resolution_meter = 0.03; // range [0.02-0.08], high to low qual
-	mapping_parameters.range_meter = 4; // range [3.5 - 10]
+	mapping_parameters.resolution_meter = 0.01; // range [0.02-0.08], high to low qual
+	mapping_parameters.range_meter = 1; // range [3.5 - 10]
 	mapping_parameters.map_type = sl::SpatialMappingParameters::SPATIAL_MAP_TYPE::MESH;
 	mapping_parameters.save_texture = true;
 
@@ -33,41 +34,32 @@ int main(int argc, char **argv){
 		std::cout << "Error " << returned_state << "exit program. \n";
 		return EXIT_FAILURE;
 	}
-	zed.enableSpatialMapping(mapping_parameters);
+	returned_state = zed.enableSpatialMapping(mapping_parameters);
+	if (returned_state != sl::ERROR_CODE::SUCCESS){
+		std::cout << "Error " << returned_state << "exit program. \n";
+		return EXIT_FAILURE;
+	}
 
 	sl::Mesh mesh;
 	int timer=0;
-	int update_period = init_parameters.camera_fps*60; 
-	std::cout << "INITIALIZING";
+	int capture_duration = 120; 
+	std::cout << "INITIALIZING" << std::endl;
 
 
 	
-	while (1){
+	while (timer < capture_duration){
 		if(zed.grab() == sl::ERROR_CODE::SUCCESS){
-			if (timer%update_period == 0 && zed.getSpatialMappingState() == sl::SPATIAL_MAPPING_STATE::OK){ 
-				std::cout << "Requesting map: State: " << zed.getSpatialMappingState() << std::endl;
-				zed.requestSpatialMapAsync(); //who likes threads anyways >:^)
-			}
-
-			if (zed.getSpatialMapRequestStatusAsync() == sl::ERROR_CODE::SUCCESS && timer > 0){
-
-				std::cout << "Retrieving map: State: " << zed.getSpatialMappingState() << std::endl;
-				zed.retrieveSpatialMapAsync(mesh);
-				zed.extractWholeSpatialMap(mesh);
-				mesh.filter(filter_parameters);
-				mesh.applyTexture();
-				mesh.save("mesh.obj");
-			}
-
-		timer++;
+			timer++;
 		}
 	}
-
 	
-
+	zed.extractWholeSpatialMap(mesh);
+	mesh.filter(filter_parameters);
+	mesh.applyTexture();
+	mesh.save("thumbsup.obj");
 	
-
-
+	zed.disableSpatialMapping();
+	zed.disablePositionalTracking();
 	zed.close();
 	return EXIT_SUCCESS;
 

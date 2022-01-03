@@ -1,66 +1,73 @@
 #include <sl/Camera.hpp>
 
-using namespace sl;
 
 int main(int argc, char **argv){
 	
-	// Camera object using zed sdk
-	Camera zed;
+	sl::Camera zed;
 	
-	// Config initial params
-	InitParameters init_params;
-	init_params.sdk_verbose = true;
-	init_params.depth_mode = DEPTH_MODE::PERFORMANCE; 
-	init_params.coordinate_units = UNIT::MILLIMETER;
-	init_params.camera_resolution = RESOLUTION::HD1080;
-	init_params.camera_fps = 30;
-	
-	//config runtime params
-	RuntimeParameters runtime_params;
-	runtime_params.sensing_mode = SENSING_MODE::STANDARD;
+	sl::InitParameters init_parameters;
+	init_parameters.sdk_verbose = true;
+	init_parameters.coordinate_units = sl::UNIT::METER;
+	init_parameters.camera_resolution = sl::RESOLUTION::HD720;
 
-	//open cam
-	ERROR_CODE returned_state  = zed.open(init_params);
-	if (returned_state != ERROR_CODE::SUCCESS){
+	sl::SpatialMappingParameters mapping_parameters;
+	mapping_parameters.resolution_meter = 0.03; // range [0.02-0.08], high to low qual
+	mapping_parameters.range_meter = 4; // range [3.5 - 10]
+	mapping_parameters.map_type = sl::SpatialMappingParameters::SPATIAL_MAP_TYPE::MESH;
+	mapping_parameters.save_texture = true;
+
+	sl::MeshFilterParameters filter_parameters;
+	filter_parameters.set(sl::MeshFilterParameters::MESH_FILTER::MEDIUM);
+
+	sl::ERROR_CODE returned_state  = zed.open(init_parameters);
+	if (returned_state != sl::ERROR_CODE::SUCCESS){
 		std::cout << "Error " << returned_state << "exit program. \n";
 		return EXIT_FAILURE;
-		}
-	
-	//get info 
+	}
 	
 	int zed_serial = zed.getCameraInformation().serial_number;
 	printf("Successfully initialized ZED: %d\n", zed_serial);
+
+	returned_state = zed.enablePositionalTracking();
+	if (returned_state != sl::ERROR_CODE::SUCCESS){
+		std::cout << "Error " << returned_state << "exit program. \n";
+		return EXIT_FAILURE;
+	}
+	zed.enableSpatialMapping(mapping_parameters);
+
+	sl::Mesh mesh;
+	int timer=0;
+	int update_period = init_parameters.camera_fps*60; 
+	std::cout << "INITIALIZING";
+
+
 	
-	//Capture 50 images, three formats
-	int i = 0;
-	sl::Mat image, depth, point_cloud;
-	while (i < 50) {
-		//grab image
-		returned_state = zed.grab(runtime_params);
-		//check return
-		if (returned_state == ERROR_CODE::SUCCESS){
-			//get images
-			zed.retrieveImage(image, VIEW::LEFT);
-			zed.retrieveMeasure(depth, MEASURE::DEPTH);
-			zed.retrieveMeasure(point_cloud, MEASURE::XYZRGBA);
-			
-			//get and print image center
-			int x = image.getWidth()/2;
-			int y = image.getHeight()/2;
-			sl::float4 point_cloud_value;
-			point_cloud.getValue(x,y,&point_cloud_value);
+	while (1){
+		if(zed.grab() == sl::ERROR_CODE::SUCCESS){
+			if (timer%update_period == 0 && zed.getSpatialMappingState() == sl::SPATIAL_MAPPING_STATE::OK){ 
+				std::cout << "Requesting map: State: " << zed.getSpatialMappingState() << std::endl;
+				zed.requestSpatialMapAsync(); //who likes threads anyways >:^)
+			}
 
-	                if(std::isfinite(point_cloud_value.z)){
-                        	float distance = sqrt(point_cloud_value.x * point_cloud_value.x + point_cloud_value.y * point_cloud_value.y + point_cloud_value.z * point_cloud_value.z);
-				std::cout<<"Distance to Camera at {"<<x<<";"<<y<<"}: "<<distance<<"mm"<<std::endl;
-            		}else std::cout<<"The Distance can not be computed at {"<<x<<";"<<y<<"}"<<std::endl;
+			if (zed.getSpatialMapRequestStatusAsync() == sl::ERROR_CODE::SUCCESS && timer > 0){
 
-			i++;	
+				std::cout << "Retrieving map: State: " << zed.getSpatialMappingState() << std::endl;
+				zed.retrieveSpatialMapAsync(mesh);
+				zed.extractWholeSpatialMap(mesh);
+				mesh.filter(filter_parameters);
+				mesh.applyTexture();
+				mesh.save("mesh.obj");
+			}
+
+		timer++;
 		}
 	}
 
+	
 
-	//closing camera
+	
+
+
 	zed.close();
 	return EXIT_SUCCESS;
 
